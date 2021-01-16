@@ -165,6 +165,7 @@ void setup() {
 /*Publish to the mqtt server */
 void mqtt_publish() {
   client.publish("path/to/your/topic", "ON");
+  delay(10000);
 }
 
 void mqtt_loop() {
@@ -188,7 +189,6 @@ void ble_loop() {
       //Publish to mqtt server
       mqtt_publish();
 
-      delay(5000);
       M5.update();
       break;
     }
@@ -211,14 +211,12 @@ void ble_loop() {
       } else {        
         blink_loop();
         Serial.println("*******************Awaiting approach***********************");
-        delay(1000);
         break;
       }
     } else {
       //Set LED red
       setBuff(0x40, 0x00, 0x00);
       M5.dis.displaybuff(DisBuff);
-      delay(5000);
       Serial.println("********************Unauthorized device************************");
       break;
     }
