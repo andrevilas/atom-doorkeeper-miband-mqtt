@@ -36,10 +36,10 @@
     <img src="images/img.png" alt="Logo" width="315" height="250">
   </a>
 
-  <h3 align="center">project_title</h3>
+  <h3 align="center">atom-doorkeeper-miband-mqtt</h3>
 
   <p align="center">
-    project_description
+    In a world dominated by the pandemic. Touching something that someone else may have recently touched can be a major risk to your health. Thinking about it, why not be able to open your garage door without touching anywhere? Or even if you forgot your keys somewhere but your Mi Band 3 or other Bluetooth device is with you. We will use them as access keys ...
     <br />
     <a href="https://github.com/andrevilas/repo_name"><strong>Explore the docs »</strong></a>
     <br />
