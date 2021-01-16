@@ -33,7 +33,7 @@
 <br />
 <p align="center">
   <a href="https://github.com/andrevilas/atom-doorkeeper-miband-mqtt">
-    <img src="images/img.png" alt="Logo" width="80" height="80">
+    <img src="images/img.png" alt="Logo" width="315" height="250">
   </a>
 
   <h3 align="center">project_title</h3>
