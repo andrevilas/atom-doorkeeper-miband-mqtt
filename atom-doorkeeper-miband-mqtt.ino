@@ -188,7 +188,7 @@ void ble_loop() {
       //Publish to mqtt server
       mqtt_publish();
 
-      delay(15000);
+      delay(5000);
       M5.update();
       break;
     }
