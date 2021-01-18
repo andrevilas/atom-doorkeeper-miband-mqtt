@@ -11,34 +11,43 @@
 #include <FastLED.h>
 #include <WiFi.h>
 #include <PubSubClient.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
 
 #define MSG_BUFFER_SIZE  (50)
 
-static WiFiClient espClient;
-
+/*Settings*/
 /*Wifi network info*/
 const char* ssid = "YOURSSID";
-const char* password =  "SSIDPASSWORD";
+const char* password = "PASSWORD";
+/*MQTT server address*/
+const char* mqtt_server = "x.x.x.x";
+const char* mqtt_topic = "YOUR-MQTT-TOPIC";
+const char* mqtt_payload = "YOUR-PAYLOAD";
+
+/*REST Service*/
+const String endpoint = "http://x.x.x.x:8123/api/states/<entity-id>";
+const String key = "Bearer YOURKEY";
+
+static WiFiClient espClient;
 
 /*BLE Scan variables*/
 int scanTime = 5; //In seconds
 BLEScan* pBLEScan;
-
-/*MAC address of de 'key' device */
-String My_BLE_Address_1 = "xx:xx:xx:xx:xx:xx";
 BLEScanResults foundDevices;
 static BLEAddress *Server_BLE_Address;
 String Scaned_BLE_Address;
 int16_t Scaned_BLE_Rssi;
 
 /*ATOM variables*/
-extern const unsigned char AtomImageData[375 + 2];
 uint8_t DisBuff[2 + 5 * 5 * 3];
 
 /*MQTT variables*/
 PubSubClient client(espClient);
 char msg[MSG_BUFFER_SIZE];
-const char* mqtt_server = "x.x.x.x"; //MQTT server address
+
+/*ArduinoJSON*/
+StaticJsonDocument<1024> doc;
 
 /*Definition of RGB colors for ATOM led*/
 void setBuff(uint8_t Rdata, uint8_t Gdata, uint8_t Bdata)
@@ -62,7 +71,6 @@ void callback(char* topic, byte* payload, unsigned int length) {
     Serial.print((char)payload[i]);
   }
   Serial.println();
-
   // Switch on the LED if an 1 was received as first character
   if ((char)payload[0] == '1') {
     setBuff(0x00, 0x00, 0x40);
@@ -78,7 +86,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
 void reconnect() {
   // Loop until we're reconnected
   while (!client.connected()) {
-    Serial.print("Connecting to the MQTT server...");
+    Serial.println("Connecting to the MQTT server...");
     // Create a random client ID
     String clientId = "ATOMLiteClient-";
     clientId += String(random(0xffff), HEX);
@@ -86,7 +94,7 @@ void reconnect() {
     if (client.connect(clientId.c_str())) {
       Serial.println("Connected to the MQTT server!");
       // Once connected, publish an announcement...
-      client.publish("your/topic/to/publish", "hello");
+      client.publish(mqtt_topic, "hello");
     } else {
       Serial.print("fail, rc=");
       Serial.print(client.state());
@@ -109,37 +117,32 @@ void setup_wifi() {
   Serial.println("Wifi initializing...");
   WiFi.begin(ssid, password);
   Serial.println("Trying to connect...");
-
   while (WiFi.status() != WL_CONNECTED) {
     /* LED Blue --> while trying to connect */
     setBuff(0x00, 0x00, 0x40);
     M5.dis.displaybuff(DisBuff);
-    delay(3000);
+    delay(1000);
     Serial.println("Connecting to Wifi...");
   }
-
   /* LED Green --> connected to wifi*/
   setBuff(0x00, 0x40, 0x00);
   M5.dis.displaybuff(DisBuff);
-
   Serial.println("Wifi connected");
   char infoBuffer[100];
   sprintf(infoBuffer, "IP: %s", WiFi.localIP().toString().c_str());
   Serial.println(infoBuffer);
-
   delay(3000);
 }
 
 void setup_bleScan() {
   Serial.println("Searching devices...");
-
   /*BLE scanning init*/
   BLEDevice::init("");
   pBLEScan = BLEDevice::getScan(); //create new scan
   pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
   pBLEScan->setActiveScan(true); //active scan uses more power, but get results faster
-  pBLEScan->setInterval(1000);
-  pBLEScan->setWindow(1000);  // less or equal setInterval value
+  //pBLEScan->setInterval(1500);
+  //pBLEScan->setWindow(1499);  // less or equal setInterval value
 }
 
 void setup() {
@@ -164,20 +167,14 @@ void setup() {
 
 /*Publish to the mqtt server */
 void mqtt_publish() {
-  client.publish("path/to/your/topic", "ON");
-  delay(10000);
-}
-
-void mqtt_loop() {
-  if (!client.connected()) {
+  if (!client.connected() && !client.loop()) {
     reconnect();
   }
-  client.loop();
+  client.publish(mqtt_topic, mqtt_payload);
 }
 
 void ble_loop() {
-  foundDevices = pBLEScan->start(3);
-
+  foundDevices = pBLEScan->start(5);
   while (foundDevices.getCount() >= 1) {
     //Check if the ATOM button was pressed
     if (M5.Btn.wasPressed()) {
@@ -185,44 +182,80 @@ void ble_loop() {
       //Set LED green
       setBuff(0x00, 0x40, 0x00);
       M5.dis.displaybuff(DisBuff);
-
       //Publish to mqtt server
       mqtt_publish();
-
       M5.update();
       break;
     }
+    //check if we have an scanned mac address
+    if (Scaned_BLE_Address != NULL) {
+      //Let's call the auth service
+      if ((WiFi.status() == WL_CONNECTED)) {
+        HTTPClient http;
+        http.begin(endpoint); //Specify the URL
+        http.addHeader("Content-Type", "application/json");
+        http.addHeader("authorization", key);
+        int httpCode = http.GET();  //Make the request
+        if (httpCode == 200 || httpCode == 201) { //Check for the returning code
+          String payload = http.getString();
+          DeserializationError err = deserializeJson(doc, payload);
+          if (err) {
+            Serial.print(F("deserializeJson() failed with code "));
+            Serial.println(err.c_str());
+          } else {
+            deserializeJson(doc, payload);
+            JsonObject attributes = doc["attributes"];
+            JsonArray attributes_ble_keys = attributes["ble_keys"];
+            const char* devices_0 = attributes_ble_keys[0]; // MAC_1
+            const char* devices_1 = attributes_ble_keys[1]; // MAC_2
+            const char* devices_2 = attributes_ble_keys[2]; // MAC_3
+            const char* devices_3 = attributes_ble_keys[3]; // MAC_4
+            const char* devices_4 = attributes_ble_keys[4]; // MAC_5
 
-    if (Scaned_BLE_Address == My_BLE_Address_1) {
-      Serial.print("RSSI: ");
-      Serial.println(Scaned_BLE_Rssi);
+            /*Debug scanning*/
+            Serial.print("RSSI: ");
+            Serial.print(Scaned_BLE_Rssi);
+            Serial.print(" MAC: ");
+            Serial.println(Scaned_BLE_Address);
 
-      if (Scaned_BLE_Rssi >= -61) {
-        Serial.println("********************Turn on the switch************************");
+            //Check device,
+            if (Scaned_BLE_Address == devices_0 || Scaned_BLE_Address == devices_1 || Scaned_BLE_Address == devices_2 || Scaned_BLE_Address == devices_3 || Scaned_BLE_Address == devices_4) {
 
-        //Set LED green
-        setBuff(0x00, 0x40, 0x00);
-        M5.dis.displaybuff(DisBuff);
-
-        //Publish to mqtt server
-        mqtt_publish();
-        
-        break;
-      } else {        
-        blink_loop();
-        Serial.println("*******************Awaiting approach***********************");
-        break;
+              if (Scaned_BLE_Rssi >= -76) {
+                Serial.println("**Turn on the switch**");
+                //Set LED green
+                setBuff(0x00, 0x40, 0x00);
+                M5.dis.displaybuff(DisBuff);
+                //Publish to mqtt server
+                mqtt_publish();
+                delay(1500);
+                break;
+              } else {
+                blink_loop();
+                Serial.println("**Awaiting approach**");
+                break;
+              }
+            } else {
+              if (Scaned_BLE_Rssi >= -76) {
+                //Set LED red
+                setBuff(0x40, 0x00, 0x00);
+                M5.dis.displaybuff(DisBuff);
+                Serial.println("**Unauthorized device**");
+                delay(3000);
+                blink_loop();
+                break;
+              }
+            }
+          }
+        } else {
+          Serial.println("Error on HTTP request");
+        }
+        http.end(); //Free the resources
       }
-    } else {
-      //Set LED red
-      setBuff(0x40, 0x00, 0x00);
-      M5.dis.displaybuff(DisBuff);
-      Serial.println("********************Unauthorized device************************");
-      break;
     }
+    pBLEScan->clearResults();   // delete results fromBLEScan buffer to release memory
+    break;
   }
-
-  pBLEScan->clearResults();   // delete results fromBLEScan buffer to release memory
 }
 
 void blink_loop() {
@@ -237,8 +270,12 @@ void blink_loop() {
 }
 
 void loop() {
-  mqtt_loop();
-  ble_loop();
-  blink_loop();
-  M5.update();
+  if ((WiFi.status() == WL_CONNECTED)) {
+    ble_loop();
+    blink_loop();
+    M5.update();
+  } else {
+    Serial.println("We don't have wifi connection... let's restart");
+    ESP.restart();
+  }
 }
